@@ -105,8 +105,13 @@ src/main/java/com/mortitech/completablefuture/
 ---
 
 ### Level 6 - Advanced Patterns
-**File:** `level6_advanced/Level6_AdvancedPatterns.java`
+**Files:** `level6_advanced/`
 
+- `Level6_AdvancedPatterns.java` - Core advanced patterns
+- `FireAndForgetPatterns.java` - Safe fire-and-forget implementations
+- `HighPressurePatterns.java` - Handling high load scenarios
+
+**Topics Covered:**
 - `orTimeout` / `completeOnTimeout` (Java 9+)
 - Retry with exponential backoff
 - Semaphore-based rate limiting
@@ -114,7 +119,23 @@ src/main/java/com/mortitech/completablefuture/
 - Avoiding thread starvation and deadlocks
 - Virtual threads for blocking safety
 
-**Key Takeaway:** Never call `join()`/`get()` inside async tasks - use `thenCompose` instead.
+**Fire-and-Forget Patterns:**
+- Why fire-and-forget is dangerous (silent exception swallowing)
+- Safe fire-and-forget with logging
+- Fire-and-forget with retry
+- Fire-and-forget with fallback
+- Optionally-tracked tasks (best of both worlds)
+- Real-world examples: analytics, notifications, audit logs
+
+**High Pressure / Thread Pool Exhaustion:**
+- Bounded queues vs unbounded (memory exhaustion risk)
+- Rejection policies: `AbortPolicy`, `CallerRunsPolicy`, `DiscardPolicy`
+- Batched database writes for high-throughput logging
+- Rate limiting with `Semaphore`
+- Circuit breaker pattern for failing dependencies
+- Metrics tracking under load
+
+**Key Takeaway:** Never call `join()`/`get()` inside async tasks. For fire-and-forget, always add error handling. Under high load, use bounded queues with appropriate rejection policies.
 
 ---
 
@@ -177,6 +198,17 @@ src/main/java/com/mortitech/completablefuture/
 4. **Ignoring exceptions** - They vanish silently
 5. **`@Async` without executor** - Creates unbounded threads
 6. **Internal `@Async` calls** - Bypasses proxy, runs synchronously
+7. **Fire-and-forget without error handling** - Exceptions lost forever
+8. **Unbounded queues under high load** - Leads to `OutOfMemoryError`
+
+## Rejection Policies (ThreadPoolExecutor)
+
+| Policy | Behavior | Use When |
+|--------|----------|----------|
+| `AbortPolicy` | Throws `RejectedExecutionException` | You need to know immediately when overloaded |
+| `CallerRunsPolicy` | Caller thread executes task | Backpressure is acceptable |
+| `DiscardPolicy` | Silently drops task | Losing tasks is acceptable (sampling) |
+| `DiscardOldestPolicy` | Drops oldest, retries new | Newer data is more important |
 
 ## Thread Pool Sizing Guidelines
 
