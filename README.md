@@ -12,6 +12,12 @@ This project provides a **progressive learning path** with practical, real-world
 - **Maven 3.8+**
 - **Spring Boot 4.x**
 
+## 📚 Additional Resources
+
+- **[Quick Reference Guide](docs/QUICK_REFERENCE.md)** - Fast lookup for testing approaches
+- **[Testing Best Practices](docs/TESTING_BEST_PRACTICES.md)** - Comprehensive guide to testing async code
+- **[Testing Philosophy](docs/TESTING_PHILOSOPHY.md)** - Deep dive into testing decisions and trade-offs
+
 ## Project Structure
 
 ```

@@ -149,9 +149,9 @@ for (Payment payment : payments) {
 
 ---
 
-### Truth #3: The Alternative Testing Approaches are OBJECTIVELY WORSE
+### Truth #3: The Alternative Testing Approaches Have Trade-offs
 
-Let's be brutally honest about what happens if you keep `void`:
+Let's be honest about what happens if you keep `void`:
 
 #### Option A: Thread.sleep()
 ```java
@@ -169,7 +169,30 @@ void testAudit() {
 - 🎲 **Non-deterministic**: No guarantee async operation completed
 - 🐛 **False positives**: Test might pass even if async code has race conditions
 
-#### Option B: Awaitility Library
+**Verdict:** ❌ **NEVER use this**
+
+#### Option B: Mockito.timeout()
+```java
+@Test
+void testAudit() {
+    service.logAudit(log);
+    verify(repo, timeout(2000)).save(any()); // 🤔 Pragmatic compromise
+}
+```
+
+**Pros:**
+- ✅ Built-in Mockito feature (no external dependency if you use Mockito)
+- ✅ Polls repeatedly, fails fast
+- ✅ More reliable than Thread.sleep()
+
+**Problems:**
+- ⏱️ **Still uses polling**: Checks every 100ms (wasteful)
+- 🎯 **Still has arbitrary timeout**: Guessing at "2000ms" duration
+- 🔍 **Not truly deterministic**: Has polling delay
+
+**Verdict:** ⚠️ **Acceptable when you can't return CompletableFuture** (legacy code, third-party libraries)
+
+#### Option C: Awaitility Library
 ```java
 @Test
 void testAudit() {
@@ -185,7 +208,9 @@ void testAudit() {
 - 🔍 **Harder to debug**: When it fails, less clear why
 - 🎯 **Arbitrary timeout**: Still guessing at "atMost" duration
 
-#### Option C: @SpringBootTest Integration Tests
+**Verdict:** ⚠️ **Only if Mockito.timeout() isn't flexible enough**
+
+#### Option D: @SpringBootTest Integration Tests
 ```java
 @SpringBootTest
 class PaymentServiceIntegrationTest {
@@ -203,7 +228,16 @@ class PaymentServiceIntegrationTest {
 - 🔧 **Complex setup**: Test containers, migrations, cleanup
 - 🎯 **Not a unit test**: Testing multiple layers
 
-**All of these are WORSE than simply returning CompletableFuture.**
+**Verdict:** ⚠️ **Different purpose - not a replacement for unit tests**
+
+### **Ranking: From Best to Worst**
+
+1. **🥇 Return CompletableFuture + .join()** - Deterministic, fast, idiomatic
+2. **🥈 Mockito.timeout()** - Pragmatic when #1 impossible (legacy code)
+3. **🥉 Awaitility** - Only if Mockito.timeout() insufficient
+4. **💀 Thread.sleep()** - NEVER acceptable
+
+**All polling approaches are worse than returning CompletableFuture.**
 
 ---
 
@@ -288,15 +322,19 @@ Changing `void` → `CompletableFuture<Void>`:
 
 ---
 
-## Recommendation Matrix 📊
+## 📊 Recommendation Matrix 📊
 
 | Scenario | Recommended Approach | Why |
 |----------|---------------------|-----|
-| **Learning project** | Return `CompletableFuture<Void>` | Best practices, educational value |
-| **Greenfield production** | Return `CompletableFuture<Void>` | Flexibility, testability, future-proof |
-| **Legacy codebase** | Dual API (void + async) | Minimal disruption, gradual migration |
-| **Team has strong opinions** | Dual API (void + async) | Political compromise while maintaining testability |
-| **True fire-and-forget only** | Return `CompletableFuture<Void>` anyway | No downside, future flexibility |
+| **New code / Greenfield** | ✅ Return `CompletableFuture<Void>` + `.join()` | Best practices, no downsides |
+| **Can modify production code** | ✅ Return `CompletableFuture<Void>` + `.join()` | Always prefer this |
+| **CANNOT modify production code** | ⚠️ `Mockito.timeout()` | Pragmatic compromise |
+| **Legacy with fire-and-forget** | ⚠️ `Mockito.timeout()` | But plan to refactor |
+| **Third-party void async methods** | ⚠️ `Mockito.timeout()` | Only option available |
+| **Integration/E2E tests** | ⚠️ `Mockito.timeout()` or Awaitility | Side-effect verification |
+| **Complex polling conditions** | ⚠️ Awaitility | More flexible than Mockito |
+| **Learning/Tutorial project** | ✅ Return `CompletableFuture<Void>` + `.join()` | Educational value |
+| **True fire-and-forget ONLY** | ✅ Still return `CompletableFuture<Void>` | Future flexibility |
 
 ---
 
@@ -313,8 +351,14 @@ I would **much rather:**
 **Than:**
 - Keep `void` and have flaky, slow tests ❌
 - Lock myself into fire-and-forget forever ❌
-- Use Thread.sleep() or Awaitility hacks ❌
+- Use Thread.sleep() hacks ❌
 - Sacrifice testability for "purity" ❌
+
+### **But I acknowledge the pragmatic reality:**
+
+When you **cannot** change production code (legacy, third-party):
+- Use `Mockito.timeout()` as a **pragmatic compromise** ⚠️
+- But **always plan to refactor** to return CompletableFuture eventually
 
 ---
 
@@ -331,14 +375,28 @@ If changing the return type from `void` to `CompletableFuture<Void>`:
 
 **Then do it.** The purism isn't worth the pain.
 
+### **But be pragmatic:**
+
+If you **literally cannot** change production code:
+- Use `Mockito.timeout()` ⚠️
+- It's **acceptable** for legacy/third-party code
+- But **plan to refactor** when possible
+
 ---
 
 ## Additional Resources
 
-- **Martin Fowler on Test-Induced Design Damage**: "If it's hard to test, the design needs work"
-- **Clean Code by Robert C. Martin**: "The first rule of functions is that they should be small. The second rule is that they should be smaller than that."
-- **Effective Java by Joshua Bloch**: "Favor composition over inheritance" (testability is composition)
-- **Java Concurrency in Practice**: CompletableFuture patterns and best practices
+### **Official Documentation**
+1. **Java CompletableFuture API**: https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/CompletableFuture.html
+2. **Mockito.timeout() JavaDoc**: https://javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/Mockito.html#22
+3. **Spring @Async Guide**: https://spring.io/guides/gs/async-method/
+4. **Baeldung - Mockito Verify**: https://www.baeldung.com/mockito-verify
+
+### **Books**
+5. **Martin Fowler on Test-Induced Design Damage**: https://martinfowler.com/bliki/TestInducedDesignDamage.html
+6. **Clean Code** by Robert C. Martin: "The first rule of functions is that they should be small"
+7. **Effective Java** by Joshua Bloch: "Favor composition over inheritance" (testability is composition)
+8. **Java Concurrency in Practice** by Brian Goetz: CompletableFuture patterns and best practices
 
 ---
 
@@ -351,14 +409,19 @@ It's about:
 - **Perceived purity vs actual value**
 - **Dogma vs developer experience**
 
-Returning `CompletableFuture<Void>` is the right choice for **99% of use cases**.
+### **The Complete Picture:**
 
-The remaining 1% should use the dual API approach.
+1. **🥇 ALWAYS prefer:** Returning `CompletableFuture<Void>` - best for 99% of cases
+2. **🥈 PRAGMATIC fallback:** `Mockito.timeout()` - when you can't change production code
+3. **🥉 RARE cases:** Awaitility - when Mockito isn't flexible enough
+4. **💀 NEVER:** Thread.sleep() - always unacceptable
 
-**Never use Thread.sleep() or sacrifice testability for philosophical purity.**
+**The remaining 1% should use the dual API approach or Mockito.timeout().**
+
+**Never sacrifice testability for philosophical purity, but acknowledge when you're constrained by reality.**
 
 ---
 
-*"Perfect is the enemy of good. But untestable is the enemy of everything."* - Anonymous Engineer
+*"Perfect is the enemy of good. But untestable is the enemy of everything. And pragmatism beats dogma."* - Anonymous Engineer
 
 **This is the hill worth dying on.** 💀⚔️

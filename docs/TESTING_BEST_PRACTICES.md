@@ -21,7 +21,40 @@ void testAsync_WithThreadSleep() throws InterruptedException {
 
 ---
 
-## ⚠️ Better: Awaitility Library
+## ⚠️ Better: Mockito.timeout()
+
+```java
+@Test
+void testAsync_WithMockitoTimeout() {
+    paymentService.process(userId, amount);
+    
+    // Poll for up to 2 seconds, checking every 100ms (default)
+    verify(auditRepository, timeout(2000)).save(any(AuditLog.class));
+}
+```
+
+**Pros:**
+- ✅ Polls repeatedly until condition is met
+- ✅ Fails fast if condition never becomes true
+- ✅ No external dependency (Mockito likely already present)
+- ✅ More reliable than Thread.sleep()
+- ✅ Built-in Mockito feature
+
+**Cons:**
+- ⏱️ Still uses polling with arbitrary timeout
+- ⏱️ Slower than `.join()` due to polling overhead
+- 🔍 Not truly deterministic (100ms polling interval)
+
+**When to Use:**
+- ✅ Legacy code where you cannot modify production methods
+- ✅ Third-party libraries with void async methods
+- ✅ Integration tests verifying side effects
+
+**Reference:** [Mockito.timeout() JavaDoc](https://javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/Mockito.html#22)
+
+---
+
+## ⚠️ Alternative: Awaitility Library
 
 ```java
 @Test
@@ -36,11 +69,17 @@ void testAsync_WithAwaitility() {
 - ✅ Polls repeatedly until condition is met
 - ✅ Fails fast if condition never becomes true
 - ✅ More reliable than Thread.sleep()
+- ✅ More expressive DSL than Mockito.timeout()
 
 **Cons:**
 - 📦 Requires external dependency
 - ⏱️ Still uses polling with arbitrary timeout
 - 🔍 Harder to debug when it fails
+
+**When to Use:**
+- ✅ When Mockito.timeout() isn't flexible enough
+- ✅ Complex polling conditions beyond simple verification
+- ✅ Need custom polling intervals or conditions
 
 ---
 
@@ -81,11 +120,12 @@ void testAsync_WithJoin() {
 
 ## 📊 Comparison Table
 
-| Approach | Speed | Reliability | Dependencies | Deterministic | Production Impact |
-|----------|-------|-------------|--------------|---------------|-------------------|
-| Thread.sleep() | ❌ Slowest | ❌ Unreliable | ✅ None | ❌ No | ✅ None |
-| Awaitility | ⚠️ Medium | ✅ Good | ❌ External lib | ⚠️ Polling | ✅ None |
-| .join() | ✅ Fast | ✅ Best | ✅ None | ✅ Yes | ⚠️ API change* |
+| Approach | Speed | Reliability | Dependencies | Deterministic | Production Impact | When to Use |
+|----------|-------|-------------|--------------|---------------|-------------------|-------------|
+| Thread.sleep() | ❌ Slowest | ❌ Unreliable | ✅ None | ❌ No | ✅ None | ❌ **NEVER** |
+| **Mockito.timeout()** | ⚠️ Medium | ✅ Good | ⚠️ Mockito (common) | ⚠️ Polling | ✅ None | ⚠️ **Can't change production** |
+| Awaitility | ⚠️ Medium | ✅ Good | ❌ External lib | ⚠️ Polling | ✅ None | ⚠️ **Complex conditions** |
+| .join() | ✅ **Fast** | ✅ **Best** | ✅ None | ✅ **Yes** | ⚠️ API change* | ✅ **ALWAYS prefer** |
 
 *API change is minimal - wrap in fire-and-forget method
 
@@ -93,7 +133,7 @@ void testAsync_WithJoin() {
 
 ## 🎯 Recommendation
 
-**Use the CompletableFuture return pattern:**
+### **Primary Approach: CompletableFuture Return Pattern** ✅
 
 1. **Create a method that returns CompletableFuture** - for testing
 2. **Wrap it in a void method** - for production fire-and-forget usage
@@ -104,6 +144,25 @@ This gives you:
 - ✅ Production fire-and-forget behavior
 - ✅ No external dependencies
 - ✅ Fast, deterministic tests
+
+### **Fallback: When You Can't Change Production Code** ⚠️
+
+If modifying production code isn't feasible (legacy systems, third-party libraries):
+
+```java
+@Test
+void testAsync_LegacyCode() {
+    legacyService.processAsync(data); // Can't change this void method
+    
+    // Use Mockito.timeout() as pragmatic compromise
+    verify(repository, timeout(2000)).save(any());
+}
+```
+
+**Use Mockito.timeout() ONLY when:**
+- Cannot return CompletableFuture from production code
+- Testing legacy or third-party code
+- Planning to refactor later
 
 ---
 
@@ -135,6 +194,26 @@ This combines benefits of both approaches:
 - No external libraries needed
 - Tests are fast, reliable, and deterministic
 
+**Testing Decision Tree:**
+```
+Can you modify the production code?
+├─ YES: Return CompletableFuture<Void> + use .join() ✅ BEST
+│
+└─ NO: Use Mockito.timeout() ⚠️ ACCEPTABLE
+       (But plan to refactor later)
+```
+
 **Avoid:**
-- Thread.sleep() for production code
-- Awaitility if you can return CompletableFuture instead
+- Thread.sleep() - Always unacceptable
+- Awaitility - Only if Mockito.timeout() isn't flexible enough
+
+---
+
+## 📚 References
+
+1. **Oracle CompletableFuture API**: https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/CompletableFuture.html
+2. **Mockito.timeout() Documentation**: https://javadoc.io/doc/org.mockito/mockito-core/latest/org/mockito/Mockito.html#22
+3. **Spring @Async Guide**: https://spring.io/guides/gs/async-method/
+4. **Baeldung - Mockito Verify**: https://www.baeldung.com/mockito-verify
+5. **Java Concurrency in Practice** by Brian Goetz
+6. **Effective Java (3rd Edition)** by Joshua Bloch - Item 81
