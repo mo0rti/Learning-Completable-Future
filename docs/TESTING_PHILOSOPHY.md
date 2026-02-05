@@ -246,7 +246,7 @@ class PaymentServiceIntegrationTest {
 
 ## The Pragmatic Compromise 🤝
 
-If the "changing code for testing" argument really bothers you (or your team), here's a **hybrid approach**:
+If the "changing code for testing" argument really bothers, here's a **hybrid approach**:
 
 ### Approach 3: Dual API (Public void + Package-Private Future)
 
