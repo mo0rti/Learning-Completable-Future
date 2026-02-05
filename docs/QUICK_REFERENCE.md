@@ -3,17 +3,21 @@
 ## 🚦 Decision Tree
 
 ```
-┌─ Can you modify the production code to return CompletableFuture?
+┌─ Does the async method return CompletableFuture?
 │
 ├─ ✅ YES
-│  └─ Return CompletableFuture<Void> + use .join() in tests
-│     └─ Wrap in void method for fire-and-forget if needed
-│        └─ BEST APPROACH ⭐
+│  │
+│  ├─ Can you call it directly in tests?
+│  │  └─ ✅ YES → Use .join() directly ⭐ BEST
+│  │
+│  └─ Is it called internally by a sync method?
+│     └─ ✅ YES → Use TWO-LAYER TESTING ⭐
+│        ├─ Layer 1: spy + verify the call
+│        └─ Layer 2: test async method with .join()
 │
-└─ ❌ NO (legacy/third-party code)
-   └─ Use Mockito.timeout() in tests
-      └─ Plan to refactor later when possible
-         └─ ACCEPTABLE FALLBACK ⚠️
+└─ ❌ NO (legacy/third-party void method)
+   └─ Use Mockito.timeout() ⚠️ FALLBACK
+      └─ Plan to refactor later
 ```
 
 ---
@@ -22,7 +26,8 @@
 
 | Approach | Use When | Avoid When | Speed | Reliability |
 |----------|----------|------------|-------|-------------|
-| **Return Future + .join()** | ✅ Always (if possible) | Never | ⚡ Fast | 💯 Best |
+| **Return Future + .join()** | ✅ Test async method directly | Never | ⚡ Fast | 💯 Best |
+| **Two-Layer Testing** | ✅ Sync method calls async internally | Overkill for simple cases | ⚡ Fast | 💯 Best |
 | **Mockito.timeout()** | ⚠️ Can't change code | Can return Future | 🐢 Medium | ✅ Good |
 | **Awaitility** | ⚠️ Complex conditions | Mockito sufficient | 🐢 Medium | ✅ Good |
 | **Thread.sleep()** | ❌ NEVER | ❌ ALWAYS | 🐌 Slow | ❌ Bad |
@@ -55,6 +60,35 @@ void test() {
 }
 ```
 
+### ✅ TWO-LAYER: Sync method calls async method internally
+
+```java
+// Production code
+public void processPayment(String userId, BigDecimal amount) {
+    // Sync logic...
+    logAuditAsync(log);  // Future discarded (fire-and-forget)
+}
+
+public CompletableFuture<Void> logAuditAsync(AuditLog log) {
+    return CompletableFuture.runAsync(() -> repo.save(log));
+}
+
+// Test Layer 1: Verify integration
+@Test
+void processPayment_callsAudit() {
+    PaymentService spy = spy(service);
+    spy.processPayment(userId, amount);
+    verify(spy).logAuditAsync(any());  // ⚡ Deterministic
+}
+
+// Test Layer 2: Test async method directly
+@Test
+void logAuditAsync_savesToDb() {
+    service.logAuditAsync(log).join();  // ⚡ Deterministic
+    verify(repo).save(log);
+}
+```
+
 ### ⚠️ FALLBACK: Mockito.timeout()
 
 ```java
@@ -69,7 +103,9 @@ public void process(Data data) {
 @Test
 void test() {
     service.process(data);
-    verify(repo, timeout(2000)).save(any()); // ⚠️ Polling
+    // Polls every 10ms (default), succeeds immediately when condition met
+    // Waits full 2000ms before failing if condition never becomes true
+    verify(repo, timeout(2000)).save(any());
 }
 ```
 
@@ -78,17 +114,23 @@ void test() {
 ## 🎯 When to Use What
 
 ### Use `.join()` when:
+- ✅ Testing async method directly
 - ✅ Writing new code
 - ✅ Can modify production methods
 - ✅ Want deterministic tests
 - ✅ Want fast tests
-- ✅ Learning CompletableFuture
+
+### Use Two-Layer Testing when:
+- ✅ Sync method calls async method internally
+- ✅ Async method returns `CompletableFuture` but caller discards it
+- ✅ Want deterministic tests (no polling)
+- ✅ Need to verify both integration AND async behavior
 
 ### Use `Mockito.timeout()` when:
 - ⚠️ Cannot modify production code
 - ⚠️ Testing legacy systems
 - ⚠️ Testing third-party libraries
-- ⚠️ Integration tests with side effects
+- ⚠️ Prefer single integration test over two-layer
 - ⚠️ Planning to refactor later
 
 ### Use `Awaitility` when:
@@ -149,10 +191,22 @@ void test() {
 
 ## 📊 Priority Ranking
 
-1. **🥇 Return CompletableFuture + .join()** - Always prefer
-2. **🥈 Mockito.timeout()** - When #1 impossible
+1. **🥇 Return CompletableFuture + .join()** - Test async method directly
+2. **🥇 Two-Layer Testing** - When sync method calls async internally
+3. **🥈 Mockito.timeout()** - When #1 and #2 impossible
 3. **🥉 Awaitility** - When #2 insufficient
 4. **💀 Thread.sleep()** - Never acceptable
+
+---
+
+## 🔧 Technical Details
+
+| Library | Default Polling | Default Timeout | Behavior |
+|---------|-----------------|-----------------|----------|
+| **Mockito.timeout()** | 10ms | User-specified | Succeeds fast, waits full timeout to fail |
+| **Awaitility** | 100ms | 10 seconds | Succeeds fast, waits full timeout to fail |
+
+**Key insight:** Both polling approaches return immediately when the condition is met, but wait the full timeout duration before failing if the condition is never satisfied.
 
 ---
 

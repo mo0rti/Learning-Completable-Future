@@ -186,7 +186,7 @@ void testAudit() {
 - ✅ More reliable than Thread.sleep()
 
 **Problems:**
-- ⏱️ **Still uses polling**: Checks every 100ms (wasteful)
+- ⏱️ **Still uses polling**: Checks every 10ms by default
 - 🎯 **Still has arbitrary timeout**: Guessing at "2000ms" duration
 - 🔍 **Not truly deterministic**: Has polling delay
 
@@ -204,9 +204,12 @@ void testAudit() {
 
 **Problems:**
 - 📦 **External dependency**: Another library to maintain
-- ⏱️ **Still uses polling**: Wasteful CPU cycles checking repeatedly
-- 🔍 **Harder to debug**: When it fails, less clear why
-- 🎯 **Arbitrary timeout**: Still guessing at "atMost" duration
+- ⏱️ **Still uses polling**: Checks every 100ms by default
+- 🎯 **Arbitrary timeout**: Still guessing at "atMost" duration (default: 10 seconds)
+
+**Pros (often overlooked):**
+- ✅ `ConditionEvaluationLogger` for debugging
+- ✅ Automatic deadlock detection
 
 **Verdict:** ⚠️ **Only if Mockito.timeout() isn't flexible enough**
 
