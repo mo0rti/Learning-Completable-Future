@@ -30,49 +30,73 @@ public CompletableFuture<Void> logAuditAsync(AuditLog log) {
 
 ### The Thread Usage Question
 
+**Key insight: Each request uses TWO threads from different pools.**
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  1000 concurrent payment requests arrive                                    │
+│  ONE REQUEST = TWO THREADS                                                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  Request Threads (e.g., Tomcat: 200 threads)                                │
+│  THREAD 1 (Tomcat Pool: 200 threads)                                        │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
 │  │                                                                       │  │
-│  │ Request 1 → processPayment()                                          │  │
-│  │               ├── findById()  [DB read: 20ms]                         │  │
-│  │               ├── save()      [DB write: 20ms]                        │  │
-│  │               └── logAuditAsync() ───────────────────────┐            │  │
-│  │                                                          │            │  │
-│  │ Request 2 → processPayment()                             │            │  │
-│  │               ├── findById()  [DB read: 20ms]            │            │  │
-│  │               ├── save()      [DB write: 20ms]           │            │  │
-│  │               └── logAuditAsync() ───────────────────────┤            │  │
-│  │ ...                                                      │            │  │
-│  │                                                          │            │  │
-│  │ ⚠️ Each thread BLOCKED ~40ms on DB I/O                   │            │  │
+│  │  processPayment() {                                                   │  │
+│  │      findById()       // blocked ~20ms                                │  │
+│  │      save()           // blocked ~20ms                                │  │
+│  │      logAuditAsync() ─────────────────────────────┐                   │  │
+│  │  }                                                │ submits work      │  │
+│  │  return response  ← Thread 1 FREE after ~40ms     │                   │  │
+│  │                                                   │                   │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
-│                       │                                     │               │
-│                       ▼                                     │               │
-│  Database Connection Pool (e.g., HikariCP: 10-50 connections)               │
+│                                                      │                      │
+│                                                      ▼                      │
+│  THREAD 2 (commonPool: 7 threads on 8-core CPU)                             │
 │  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 🔌 Only 10-50 connections available                                   │  │
-│  │ ⏳ Threads waiting for connections → potential timeouts               │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                                             │               │
-│                                                             ▼               │
-│  CompletableFuture Executor (ForkJoinPool.commonPool by default)            │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ 🧵 Thread 1: auditRepository.save() [50ms]                            │  │
-│  │ 🧵 Thread 2: auditRepository.save() [50ms]                            │  │
-│  │ ...                                                                   │  │
-│  │ 🧵 Thread 7: auditRepository.save() [50ms] ← Only 7 on 8-core CPU!    │  │
 │  │                                                                       │  │
-│  │ 📥 Queue: audits piling up faster than processed...                   │  │
+│  │  auditRepository.save()  // blocked ~50ms                             │  │
+│  │                                                                       │  │
+│  │  Thread 2 FREE after ~50ms                                            │  │
+│  │                                                                       │  │
 │  └───────────────────────────────────────────────────────────────────────┘  │
 │                                                                             │
-│  ❓ Three bottlenecks: Tomcat threads, DB connections, and commonPool       │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### The Producer-Consumer Imbalance
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  1000 requests/sec arriving                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  TOMCAT POOL (Producer)                  COMMONPOOL (Consumer)              │
+│  ──────────────────────                  ────────────────────               │
+│  200 threads available                   7 threads available                │
+│  Each request: ~40ms                     Each audit: ~50ms                  │
+│                                                                             │
+│  Throughput:                             Throughput:                        │
+│  200 × (1000ms/40ms) = 5000 req/sec      7 × (1000ms/50ms) = 140 audit/sec  │
+│                                                                             │
+│         5000 audits/sec produced    vs    140 audits/sec consumed           │
+│                                                                             │
+│                        ┌──────────────────────────────┐                     │
+│                        │  📥 QUEUE GROWS BY           │                     │
+│                        │     4860 audits/sec!         │                     │
+│                        │                              │                     │
+│                        │  After 1 min: 291,600 queued │                     │
+│                        │  → OutOfMemoryError          │                     │
+│                        └──────────────────────────────┘                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### What Can Go Wrong
+
+| Scenario | What Happens | Result |
+|----------|--------------|--------|
+| **Queue grows forever** | Audits pile up faster than processed | `OutOfMemoryError` |
+| **commonPool shared globally** | Your audits block other libraries' async work | Entire app slows down |
+| **CallerRunsPolicy backpressure** | Tomcat thread runs audit when queue full | Payment latency: 40ms → 90ms+ |
 
 ---
 
