@@ -17,6 +17,7 @@ This project provides a **progressive learning path** with practical, real-world
 - **[Quick Reference Guide](docs/QUICK_REFERENCE.md)** - Fast lookup for testing approaches
 - **[Testing Best Practices](docs/TESTING_BEST_PRACTICES.md)** - Comprehensive guide to testing async code
 - **[Testing Philosophy](docs/TESTING_PHILOSOPHY.md)** - Deep dive into testing decisions and trade-offs
+- **[Threading Best Practices](docs/THREADING_BEST_PRACTICES.md)** - Executor strategies and thread pool management
 
 ## Project Structure
 
